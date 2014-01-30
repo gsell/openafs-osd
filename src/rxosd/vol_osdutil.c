@@ -55,6 +55,8 @@
 #include <strings.h>
 #endif
 
+#include <afs/cmd.h>
+
 #ifdef O_LARGEFILE
 #define afs_open	open64
 #else /* !O_LARGEFILE */
@@ -134,7 +136,7 @@ alloc_osd_metadata(afs_int32 length, char **data)
     memset(mh, 0, sizeof(struct osdMetadataHandle));
     mh->offset = 0;
     mh->length = length;
-    *data = (byte *)&mh->data;
+    *data = (char *)&mh->data;
     return mh;
 }
 
@@ -179,7 +181,7 @@ print_osd_metadata_verb(struct osdMetadataHandle *mh, afs_int32 verbose,
 			if (pfile->archiveVersion || pfile->archiveTime) {
                             printf("Archive, dv=%u, ",
                                     pfile->archiveVersion);
-                            PrintTime(&pfile->archiveTime);
+                            PrintTime(pfile->archiveTime);
 		        } else 
 			    printf("On-line");
                         printf(",%s%u segm\n",
@@ -231,7 +233,7 @@ print_osd_metadata_verb(struct osdMetadataHandle *mh, afs_int32 verbose,
 			if (pfile->archiveVersion || pfile->archiveTime) {
                             printf("Archive, dv=%u,",
                                     pfile->archiveVersion);
-                            PrintTime(&pfile->archiveTime);
+                            PrintTime(pfile->archiveTime);
 		        } else {
 			    if (pfile->flags & RESTORE_IN_PROGRESS)
 			        printf("Being-restored");
@@ -284,11 +286,11 @@ print_osd_metadata_verb(struct osdMetadataHandle *mh, afs_int32 verbose,
 		    if (pfile->archiveVersion || pfile->archiveTime) {
                         printf("Archive, dv=%u,",
                                     pfile->archiveVersion);
-                        PrintTime(&pfile->archiveTime);
+                        PrintTime(pfile->archiveTime);
 		        if (pfile->nFetches) {
 			    printf(", %u fetches, last:",
 					pfile->nFetches);
-                            PrintDate(&pfile->fetchTime);
+                            PrintDate(pfile->fetchTime);
 			}
 		    } else {
 			if (pfile->flags & RESTORE_IN_PROGRESS)
@@ -361,7 +363,7 @@ print_osd_metadata_verb(struct osdMetadataHandle *mh, afs_int32 verbose,
                                 m->data[0], m->data[1], m->data[2], m->data[3]);
                                 if (m->time) {
 				    printf(" as from ");
-				    PrintTime(&m->time);
+				    PrintTime(m->time);
 				}
 				printf("\n");
                         }

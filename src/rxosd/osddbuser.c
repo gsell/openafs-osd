@@ -109,6 +109,10 @@ char * cellPtr = NULL;
 
 #define MIN_SIZE_FOR_STRIPING 1024 * 1024
 
+
+extern int ubik_Call (int (*aproc) (struct rx_connection*,...), struct ubik_client *aclient, afs_int32 aflags, ...);
+
+
 #ifdef BUILD_LIBAFSOSD_A
 struct ubik_client *
 init_osddb_client(char *cell)
@@ -229,7 +233,6 @@ void free_regexes(pol_cond *condition)
 void free_policy(struct osddb_policy *policy)
 {
     int r;
-    afs_int32 code;
     XDR xdr;
     for ( r = 0 ; r < policy->rules.pol_ruleList_len ; r++ )
 	free_regexes(&policy->rules.pol_ruleList_val[r].condition);
@@ -240,7 +243,6 @@ void free_policy(struct osddb_policy *policy)
 
 void free_pol_info(struct pol_info *info)
 {
-    int i;
     if (info == NULL)
 	return;
     free_pol_info(info->next);
@@ -272,8 +274,8 @@ void annotate_condition(struct pol_info *info, pol_cond *cond)
 		    tmp += strlen(tmp) + 1;
 		    flags = REG_EXTENDED 
 		    		| (pred.type & PREDFLAG_ICASE ? REG_ICASE : 0); 
-		    if ( code = regcomp(
-				(regex_t*)tmp, pred.pol_pred_u.regex, flags) ) {
+		    if (( code = regcomp(
+                                  (regex_t*)tmp, pred.pol_pred_u.regex, flags) )) {
 			ViceLog(0, ("regex compile failed for /%s/: %d\n",
 						pred.pol_pred_u.regex, code)); 
 		    }
@@ -299,7 +301,7 @@ void annotate_condition(struct pol_info *info, pol_cond *cond)
 struct pol_info *make_pol_info(osddb_policy *pol, afs_uint32 id, char *name,
 				struct pol_info *dest)
 {
-    int r, p;
+    int r;
 
     if ( !dest ) { /* osd calls without allocating space */
 	dest = malloc(sizeof(struct pol_info));
@@ -327,7 +329,7 @@ void buildPolicyIndex(struct OsdList *l)
 {
     static int initialized = 0;
     static struct pol_info *new_index[POLINDEX_LEN];
-    int i, r, code, changes = 1, passes;
+    int i, r, changes = 1, passes;
     if ( !l ) return;
 
     memset(&new_index, 0, sizeof(new_index));
@@ -339,7 +341,6 @@ void buildPolicyIndex(struct OsdList *l)
 	osddb_policy pol = entry.t.etype_u.pol;
 	int index = entry.id % POLINDEX_LEN;
 	struct pol_info *parent, *current;
-	int uses_file_size = 0, uses_file_name = 0;
 
 	if ( new_index[index] != NULL ) {
 	    parent = new_index[index];
@@ -366,7 +367,7 @@ void buildPolicyIndex(struct OsdList *l)
 	for ( i = 0 ; i < l->OsdList_len ; i++ ) {
 	    struct Osd entry = l->OsdList_val[i];
 	    osddb_policy pol = entry.t.etype_u.pol;
-	    int index = entry.id % POLINDEX_LEN, used_index;
+	    int index = entry.id % POLINDEX_LEN;
 	    struct pol_info *used = NULL, *me = NULL;
 
 	    me = new_index[index];
@@ -424,7 +425,7 @@ void buildPolicyIndex(struct OsdList *l)
     OSDDB_UNLOCK;
 }
 
-void FillPolicyTable()
+void FillPolicyTable(void)
 {
     struct OsdList l;
     afs_int32 code;
@@ -436,9 +437,9 @@ void FillPolicyTable()
             return;
     }
 
-    code = ubik_Call(OSDDB_GetPoliciesRevision, osddb_client, 0, &db_revision);
+    code = ubik_Call((int(*)(struct rx_connection*,...))OSDDB_GetPoliciesRevision, osddb_client, 0, &db_revision);
     if (code == RXGEN_OPCODE)
-        code = ubik_Call(OSDDB_GetPoliciesRevision68, osddb_client, 0, &db_revision);
+            code = ubik_Call((int(*)(struct rx_connection*,...))OSDDB_GetPoliciesRevision68, osddb_client, 0, &db_revision);
     if ( code ) {
 	ViceLog(0, ("failed to query for policy revision, error %d\n", code));
 	return;
@@ -450,9 +451,9 @@ void FillPolicyTable()
 
     l.OsdList_len = 0;
     l.OsdList_val = 0;
-    code = ubik_Call(OSDDB_PolicyList, osddb_client, 0, &l);
+    code = ubik_Call((int(*)(struct rx_connection*,...))OSDDB_PolicyList, osddb_client, 0, &l);
     if (code == RXGEN_OPCODE)
-        code = ubik_Call(OSDDB_PolicyList66, osddb_client, 0, &l);
+        code = ubik_Call((int(*)(struct rx_connection*,...))OSDDB_PolicyList66, osddb_client, 0, &l);
     if (!code) {
 	buildPolicyIndex(&l);
 	/* the very policy structures are in the new index now */
@@ -465,11 +466,9 @@ void FillPolicyTable()
 }
 
 void
-FillOsdTable()
+FillOsdTable(void)
 {
-    FILE *fp;
-    int i, j, k, f, ip0, ip1, ip2, ip3;
-    afs_uint32 tableSize = 0;
+    int i;
     char line[64];
     struct hostent *he;
     struct OsdList l;
@@ -507,9 +506,9 @@ FillOsdTable()
     }
     l.OsdList_len = 0;
     l.OsdList_val = 0;
-    code = ubik_Call(OSDDB_ServerList, osddb_client, 0, &l);
+    code = ubik_Call((int(*)(struct rx_connection*,...))OSDDB_ServerList, osddb_client, 0, &l);
     if (code == RXGEN_OPCODE)
-        code = ubik_Call(OSDDB_ServerList63, osddb_client, 0, &l);
+        code = ubik_Call((int(*)(struct rx_connection*,...))OSDDB_ServerList63, osddb_client, 0, &l);
     if (!code) {
         afs_uint32 towner = 0;
         afs_uint32 tlocation = 0;
@@ -527,7 +526,7 @@ FillOsdTable()
 
     l.OsdList_len = 0;
     l.OsdList_val = 0;
-    code = ubik_Call(OSDDB_OsdList, osddb_client, 0, &l);
+    code = ubik_Call((int(*)(struct rx_connection*,...))OSDDB_OsdList, osddb_client, 0, &l);
     if (!code) {
         OSDDB_LOCK;
 	if (osds.OsdList_val)
@@ -566,7 +565,7 @@ MinOsdWipeMB(afs_uint32 osd)
 }
 
 afs_int32
-fillRxEndpoint(afs_uint32 id, struct rx_endp *endp, afs_int32 *type, afs_int32 ignore)
+fillRxEndpoint(afs_uint32 id, struct rx_endp *endp, afs_uint32 *type, afs_int32 ignore)
 {
     afs_int32 i, code = ENOENT;
  
@@ -622,7 +621,7 @@ retry:
 
 afs_int32
 FindOsdType(afs_uint32 id, afs_uint32 *ip, afs_uint32 *lun, afs_int32 ignore,
-		afs_uint32 *type, afs_int32 *service, afs_int32 *port)
+		afs_uint32 *type, afs_uint32 *service, afs_uint32 *port)
 {
     afs_int32 i, code = ENOENT;
  
@@ -739,9 +738,9 @@ init_pol_statList(struct osd_infoList *list)
         if (!osddb_client)
             return EIO;
     }
-    code = ubik_Call(OSDDB_PolicyList, osddb_client, 0, &l);
+    code = ubik_Call((int(*)(struct rx_connection*,...))OSDDB_PolicyList, osddb_client, 0, &l);
     if (code == RXGEN_OPCODE)
-        code = ubik_Call(OSDDB_PolicyList66, osddb_client, 0, &l);
+        code = ubik_Call((int(*)(struct rx_connection*,...))OSDDB_PolicyList66, osddb_client, 0, &l);
     if ( code ) {
 	ViceLog(0, ("init_pol_statList failed with %d\n", code));
 	return code;
@@ -766,7 +765,7 @@ init_pol_statList(struct osd_infoList *list)
 }
 
 afs_uint64
-get_max_move_osd_size()
+get_max_move_osd_size(void)
 {
     static afs_uint64 value = 1024*1024;
     int i;
@@ -789,6 +788,7 @@ get_max_move_osd_size()
     return value;
 }
 
+#ifndef BUILD_LIBAFSOSD_A
 static
 void incrementChosen(struct Osd *o)
 {
@@ -802,7 +802,6 @@ void incrementChosen(struct Osd *o)
         (o->t.etype_u.osd.chosen)++;
 }
 
-#ifndef BUILD_LIBAFSOSD_A
 /*
  * DoFindOsd is called with osd and lun being pointers either to single
  * variables (in case stripes == 1) or arrays.
@@ -822,7 +821,7 @@ DoFindOsd(afs_uint64 size, afs_uint32 *osd, afs_uint32 *lun,
         afs_uint32 stripes, afs_uint32 archival, int useSize,
 	afs_uint32 *avoid, afs_int32 navoid)
 {
-    afs_int32 i, j, k, imax, needed, pass;
+    afs_int32 i, j, imax, needed, pass;
     afs_uint32 skip[16];
     afs_int32 nskip = 0;
     afs_int64 tsize;
@@ -981,12 +980,14 @@ FindOsdBySize(afs_uint64 size, afs_uint32 *osd, afs_uint32 *lun,
     return DoFindOsd(size, osd, lun, stripes, archival, 1, NULL, 0);
 }
 
+afs_int32
 FindAnyOsd(afs_uint32 *osd, afs_uint32 *lun,
 	afs_uint32 stripes, afs_uint32 archival)
 {
     return DoFindOsd((afs_uint64)0, osd, lun, stripes, archival, 0, NULL, 0);
 }
 
+afs_int32
 FindOsdBySizeAvoid(afs_uint64 size, afs_uint32 *osd, afs_uint32 *lun,
         afs_uint32 nosds, afs_uint32 *avoid, afs_int32 navoid)
 {
@@ -1041,45 +1042,6 @@ OsdHasAccessToHSM(afs_uint32 osd_id)
     return result;
 }
 
-afs_int32
-consider_policy_properties(afs_uint32 id, int num_rule, pol_rule r, int output)
-{
-    char *report = "policy %d: invalid %s %d in rule %d (properties 0x%06x)\n";
-    afs_int32 result = 0;
-    if ( POLPROP_LOCATION(r.properties) > 3 )  {
-	result = EINVAL;
-	printf(report, id, "location",
-		    POLPROP_LOCATION(r.properties), num_rule, r.properties);
-    }
-    if ( POLPROP_NSTRIPES(r.properties)
-	    && POLPROP_NSTRIPES(r.properties) != 1
-	    && POLPROP_NSTRIPES(r.properties) != 2
-	    && POLPROP_NSTRIPES(r.properties) != 4
-	    && POLPROP_NSTRIPES(r.properties) != 8 ) {
-	result = EINVAL;
-	printf(report, id, "number of stripes",
-		    POLPROP_NSTRIPES(r.properties), num_rule, r.properties);
-    }
-    if ( POLPROP_SSTRIPES(r.properties) &&
-	    ( POLPROP_SSTRIPES(r.properties) < 12
-	      || POLPROP_SSTRIPES(r.properties) > 19 ) ) {
-	result = EINVAL;
-	printf(report, id, "stripe-size",
-		    POLPROP_SSTRIPES(r.properties), num_rule, r.properties);
-    }
-    if ( POLPROP_NCOPIES(r.properties) > 8 ) {
-	result = EINVAL;
-	printf(report, id, "number of copies",
-		    POLPROP_NCOPIES(r.properties), num_rule, r.properties);
-    }
-    if (POLPROP_NSTRIPES(r.properties) * POLPROP_NCOPIES(r.properties) > 8){
-	result = EINVAL;
-	printf(report, id, "total number of objects",
-		    POLPROP_NCOPIES(r.properties)
-		    * POLPROP_NSTRIPES(r.properties), num_rule, r.properties);
-    }
-    return result;
-}
 
 /* call these only while holding the OSDDB_LOCK! */
 struct pol_info *get_pol_info(afs_uint32 id)
@@ -1118,7 +1080,7 @@ policy_uses_file_name(afs_int32 policyIndex)
     if ( policyIndex < 2 )
 	return 0;
     OSDDB_LOCK;
-    if ( entry = get_pol_info(policyIndex) )
+    if (( entry = get_pol_info(policyIndex) ))
 	result = entry->uses_file_name;
     OSDDB_UNLOCK;
     return result;
@@ -1467,6 +1429,7 @@ eval_condtree(pol_cond *cond, afs_uint64 size, char *fileName,
 	}
 	return *result;
     }
+    return EINVAL; /* ? we should return something here ... */
 }
 
 #define UPDATE(P, M) if ( P(rule.properties) ) *props = ( *props & ~M ) | (rule.properties & M)
@@ -1530,14 +1493,12 @@ eval_policy(unsigned int policyIndex, afs_uint64 size, char *fileName,
 	afs_uint32 *force)
 {
     afs_uint32 tcode = 0;
-    struct pol_info *policy;
     /* stripes=1, copies=1, stripe_size=12, location=dynamic */
     afs_uint32 props = 
     	*force << 20 | *copies << 16 | *stripe_size << 8 | *stripes << 4 |
 	(*use_osd ? POL_LOC_OSD 
 		  : *dyn_location ? POL_LOC_DYNAMIC
 		  : POL_LOC_LOCAL);
-    int r;
 
 #ifdef AFS_PTHREAD_ENV
     OSDDB_POL_LOCK;

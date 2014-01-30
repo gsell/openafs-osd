@@ -147,7 +147,7 @@ TryUnlock(void)
         VTRANS_UNLOCK;
 }
 
-extern void TransferRate();
+extern void TransferRate(void);
 
 /* background daemon for timing out transactions */
 static void*
@@ -487,7 +487,6 @@ main(int argc, char **argv)
     VOptDefaults(volumeServer, &opts);
 #ifdef AFS_PTHREAD_ENV
     if (libafsosd) {
-        extern char *AFSVersion;
         extern struct vol_data_v0 vol_data_v0;
         extern struct volser_data_v0 volser_data_v0;
         struct init_volser_inputs input = {
@@ -648,7 +647,7 @@ main(int argc, char **argv)
 
     LogCommandLine(argc, argv, "Volserver", VolserVersion, "Starting AFS",
 		   Log);
-    TM_GetTimeOfDay(&statisticStart, 0);
+    FT_GetTimeOfDay(&statisticStart, 0);
     if (TTsleep) {
 	Log("Will sleep %d second%s every %d second%s\n", TTsleep,
 	    (TTsleep > 1) ? "s" : "", TTrun + TTsleep,

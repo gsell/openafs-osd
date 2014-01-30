@@ -21,6 +21,7 @@
 #endif
 
 #include <lock.h>
+#include <ctype.h>
 #include <afs/stds.h>
 #include <rx/xdr.h>
 #include <rx/rx.h>
@@ -59,6 +60,8 @@
 
 #undef rx_SetRxDeadTime
 #define rx_SetRxDeadTime(seconds)   (*vos_data->rx_connDeadTime = (seconds))
+
+extern int ubik_Call (int (*aproc) (struct rx_connection*,...), struct ubik_client *aclient, afs_int32 aflags, ...);
 
 #define COMMONPARMS     cmd_Seek(ts, 12);\
 cmd_AddParm(ts, "-cell", CMD_SINGLE, CMD_OPTIONAL, "cell name");\
@@ -115,16 +118,7 @@ UV_Traverse(afs_uint32 *server, afs_int32 vid, afs_uint32 nservers,
     afs_int32 code;
     struct sizerangeList localsrl, *srl;
     struct osd_infoList locallist, *list;
-    afs_uint64 max, min = 0;
-    int i, j, k, n;
-    char unit[8], minunit[8];
-    afs_uint32 totalfiles;
-    afs_uint64 totalbytes;
-    afs_uint64 runningbytes;
-    afs_uint32 runningfiles;
-    int highest = 0;
-    float bytes, percentfiles, percentdata, runpercfiles, runpercdata;
-    afs_uint64 maxsize = 4096;
+    int i, j, n;
     int policy_statistic = (tsrl == NULL);
     srl = &localsrl;
     list = &locallist;
@@ -522,14 +516,14 @@ Archcand(struct cmd_syndesc *as, void *arock)
             else
                 i = 3;
         }
-        if (i != 1 && i != 2 || maxsize < minsize) {
+        if ((i != 1 && i != 2) || maxsize < minsize) {
             fprintf(stderr,"Invalid value for maxsize %s.\n",
                         as->parms[2].items->data);
             return 1;
         }
     }
     if (as->parms[3].items) {           /* -copies */
-        code = util_GetInt32(as->parms[3].items->data, &copies);
+        code = util_GetUInt32(as->parms[3].items->data, &copies);
         if (code || copies < 1 || copies > 4) {
             fprintf(stderr,"Invalid value for copies %s.\n",
                         as->parms[3].items->data);
@@ -537,7 +531,7 @@ Archcand(struct cmd_syndesc *as, void *arock)
         }
     }
     if (as->parms[4].items) {           /* -maxcandidates */
-        code = util_GetInt32(as->parms[4].items->data, &maxcandidates);
+        code = util_GetUInt32(as->parms[4].items->data, &maxcandidates);
         if (code || maxcandidates < 1 || maxcandidates > 4096) {
             fprintf(stderr,"Invalid value for maxcandidates %s.\n",
                         as->parms[4].items->data);
@@ -565,7 +559,7 @@ Archcand(struct cmd_syndesc *as, void *arock)
             else if (str[0] == 'd' || str[0] == 'D')
                 delay = delay * 3600 * 24;
             else if (str[0] != 's' && str[0] != 'S') {
-                sprintf(stderr, "Unknown time unit %s, aborting\n", str);
+                fprintf(stderr, "Unknown time unit %s, aborting\n", str);
                 return EINVAL;
             }
         }
@@ -642,7 +636,7 @@ ListObjects(struct cmd_syndesc *as, void *arock)
     afs_uint32 flag = 0;
     struct rx_connection *tcon;
     struct rx_call *call;
-    afs_int32 i, j, k;
+    afs_int32 j;
     struct nvldbentry entry;
     char line[128];
     char *p = line;
@@ -819,7 +813,6 @@ SalvageOSD(struct cmd_syndesc *as, void *arock)
     int i, j, bytes;
     afs_uint32 server = 0, vid;
     afs_int32 flags = 8;        /* to say volserver we are using new syntax */
-    char buffer[16];
     struct rx_connection *tcon;
     afs_int32 instances = 0;
     afs_int32 localinst = 0;
@@ -1026,9 +1019,7 @@ void printlength(afs_uint64 length)
 static int
 Traverse(struct cmd_syndesc *as, void *arock)
 {
-    afs_int32 vid=0, apart, voltype, fromdate = 0, code, err;
-    struct nvldbentry entry;
-    volintSize vol_size;
+    afs_int32 vid=0, code, err;
     struct cmd_item *ti;
     afs_uint32 server[256];
     afs_int32 nservers = 0;
@@ -1036,14 +1027,13 @@ Traverse(struct cmd_syndesc *as, void *arock)
     struct osd_infoList totalinfo, *list;
     char *cell = 0;
     afs_uint64 max, min = 0;
-    int i, j, k, n;
+    int i, j, k;
     char unit[8], minunit[8];
     afs_uint64 totalfiles;
     afs_uint64 totalbytes;
     afs_uint64 runningbytes;
     afs_uint64 runningfiles;
     char *newvolume = 0;
-    char *newserver = 0;
     int highest = 0;
     int more = 0;
     int policy_statistic = 0;
@@ -1192,12 +1182,10 @@ Traverse(struct cmd_syndesc *as, void *arock)
         struct OsdList l;
         char unknown[8] = "unknown";
         char *p;
-        afs_int32 type;
-        afs_int32 status = 0;
 
         osddb_client = init_osddb_client(cell);
         memset(&l, 0, sizeof(l));
-        code = ubik_Call(OSDDB_OsdList, osddb_client, 0, &l);
+        code = ubik_Call((int(*)(struct rx_connection*,...))OSDDB_OsdList, osddb_client, 0, &l);
         if (code) {
                 fprintf(stderr, "OSDDB_OsdList failed with code %d\n", code);
                 return code;
@@ -1264,7 +1252,7 @@ Traverse(struct cmd_syndesc *as, void *arock)
         }
         printf("----------------------------------------------------------------\n");
         bytes = totalbytes;
-        printf("Totals:      %11lu Files         ", totalfiles);
+        printf("Totals:      %llu Files         ", totalfiles);
         printlength(totalbytes);
         printf("\n");
         totalfiles = 0;
@@ -1310,7 +1298,7 @@ Traverse(struct cmd_syndesc *as, void *arock)
             list->osd_infoList_val[k].osdid |= 0x8000000;
         }
         printf("---------------------------------------------------------------\n");
-        printf("Total                       %11u objects  ", totalfiles);
+        printf("Total                       %llu objects  ", totalfiles);
         printlength(totalbytes);
         printf("\n");
 
@@ -1354,7 +1342,7 @@ Traverse(struct cmd_syndesc *as, void *arock)
             list->osd_infoList_val[k].osdid = 0xfffffff;
         }
         printf("---------------------------------------------------------------\n");
-        printf("Total                       %11u objects  ", totalfiles);
+        printf("Total                       %llu objects  ", totalfiles);
         printlength(totalbytes);
         printf("\n");
     } else
@@ -1367,10 +1355,9 @@ static int
 SplitVolume(struct cmd_syndesc *as, void *arock)
 {
     struct nvldbentry entry;
-    afs_int32 vcode = 0;
     volintInfo *pntr = (volintInfo *) 0;
     afs_uint32 volid;
-    afs_int32 i, j, k, code, err, error = 0;
+    afs_int32 i, j, code, err;
     afs_uint32 newvolid = 0, dirvnode = 0;
     struct rx_connection *tcon;
 

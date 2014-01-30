@@ -56,6 +56,8 @@
 #include <afs/ihandle.h>
 #include <afs/namei_ops.h>
 #include "afsosd.h"
+#include "AFS_component_version_number.c"
+
 
 struct vol_data_v0 *voldata;
 
@@ -66,8 +68,6 @@ struct afsconf_dir *osddb_confdir = NULL;	/* osddb configuration dir */
 int lwps = 9;
 
 static struct ubik_dbase *OSD_dbase;
-extern int afsconf_CheckAuth();
-extern int afsconf_ServerAuth();
 
 static afs_int32 write_osddb_header(struct ubik_trans *trans);
 static afs_int32 read_osddb_entry(struct ubik_trans *trans, afs_int32 offs,
@@ -77,7 +77,6 @@ static afs_int32 write_osddb_entry(struct ubik_trans *trans, afs_int32 offs,
 static afs_int32 AllocBlock(struct ubik_trans *trans, struct oe *e);
 static int FreeBlock(struct ubik_trans *trans, afs_int32 blockindex);
 
-static CheckSignal();
 extern int LogLevel;
 int smallMem = 0;
 int rxJumbograms = 1;		/* default is to send and receive jumbo grams */
@@ -99,9 +98,11 @@ struct dbBuffer {
     char data[OSDDB_ENTRY_LENGTH];
 };
 
-extern int OSDDB_ExecuteRequest();
-
-#include "AFS_component_version_number.c"
+/*
+  :FIXME: defined in <ubik.h> if UBIK_INTERNALS is set, but we cannot include
+  this file
+ */
+extern int ubeacon_AmSyncSite(void);
 
 /************************************************************************/
 
@@ -243,16 +244,14 @@ out:
 }
 	
 static afs_int32
-IDHash(volumeid)
-     afs_int32 volumeid;
+IDHash(afs_int32 volumeid)
 {
     return ((abs(volumeid)) % OSDDB_HASHSIZE);
 }
 
 #define HASHL1 OSDDB_MAXNAMELEN - 1
 static afs_int32
-NameHash(name)
-     char *name;
+NameHash(char *name)
 {
     unsigned int hash;
     int i;
@@ -278,11 +277,9 @@ UpdateCache(struct ubik_trans *tt, void *rock)
 }
 
 afs_int32
-static CheckInit(trans, builddb)
-     struct ubik_trans *trans;
-     int builddb;
+static CheckInit(struct ubik_trans *trans, int builddb)
 {
-    afs_int32 i, code, ubcode = 0;
+    afs_int32 code, ubcode = 0;
 
     /* ubik_CacheUpdate must be called on every transaction.  It returns 0 if the
      * previous transaction would have left the cache fine, and non-zero otherwise.
@@ -614,7 +611,7 @@ FindById(struct ubik_trans *trans, afs_int32 what, afs_int32 id,
 
 static afs_int32
 FindByName(struct ubik_trans *trans, afs_int32 what, char *name, 
-	   struct oe *e, afs_int32 *offs)
+	   struct oe *e, afs_uint32 *offs)
 {
     afs_int32 hashindex, i, code;
 
@@ -923,7 +920,7 @@ policy_will_use(struct ubik_trans *trans,
 {
     struct oe e;
     osddb_policy pol;
-    int offset;
+    afs_uint32 offset;
     int i = 0;
     afs_int32 code = 0;
 
@@ -934,10 +931,10 @@ policy_will_use(struct ubik_trans *trans,
     pol = e.oe_u.t3.t.etype_u.pol; 
     for ( i = 0 ; i < pol.rules.pol_ruleList_len ; i++ ) {
 	afs_uint32 next;
-	if ( next = pol.rules.pol_ruleList_val[i].used_policy ) {
+	if ((next = pol.rules.pol_ruleList_val[i].used_policy)) {
 	    if ( next == search_id )
 		return EEXIST;
-	    if ( code = policy_will_use(trans, next, search_id ) )
+	    if ((code = policy_will_use(trans, next, search_id)) )
 		goto leave_policy_will_use;
 	}
     }
@@ -961,7 +958,7 @@ check_policy(struct ubik_trans *trans, afs_uint32 id, pol_ruleList *rules)
 		ViceLog(0, ("policy %d tries to refer to iteself\n", id));
 		return EINVAL;
 	    }
-	    if ( code = policy_will_use(trans, r.used_policy, id) ) {
+	    if ((code = policy_will_use(trans, r.used_policy, id))) {
 		if ( code == EEXIST ) {
 		    ViceLog(0, ("policy %d introduces use() cycle\n", id));
 		    code = EINVAL;
@@ -1132,16 +1129,17 @@ static afs_int32
 AddOsd(struct rx_call *call, struct osddb_osd_tab *in)
 {
     struct ubik_trans *trans;
-    afs_int32 code, offs;
+    afs_int32 code;
+    afs_uint32 offs;
     struct oe *e = NULL;
 
     if (!afsconf_SuperUser(osddb_confdir, call, NULL))
         return EPERM;
  
-    if (code = check_osd_tab(in))
+    if ((code = check_osd_tab(in)))
 	return code;
 
-    if (code = init_dbase(&trans, LOCKWRITE))
+    if ((code = init_dbase(&trans, LOCKWRITE)))
 	return code;
 
     e = malloc(sizeof(struct oe));
@@ -1243,9 +1241,7 @@ static afs_int32
 GetOsdList(struct rx_call *call, struct OsdList *list)
 {
     struct ubik_trans *trans;
-    afs_int32 code, i, j;
-    struct oe e;
-    struct Osd *s;
+    afs_int32 code;
 
     list->OsdList_len = 0;
     list->OsdList_val = NULL; 
@@ -1263,7 +1259,7 @@ GetOsdList(struct rx_call *call, struct OsdList *list)
 #if 0	/* Why */
     if (code = init_dbase(&trans, ubeacon_AmSyncSite()? LOCKWRITE : LOCKREAD))
 #else
-    if (code = init_dbase(&trans, LOCKREAD))
+    if ((code = init_dbase(&trans, LOCKREAD)))
 #endif
 	return code;
     list->OsdList_val = malloc(header.nOsds * sizeof(struct Osd));
@@ -1272,8 +1268,8 @@ GetOsdList(struct rx_call *call, struct OsdList *list)
     memset(list->OsdList_val, 0, header.nOsds * sizeof(struct Osd));
     list->OsdList_len = header.nOsds;
 
-    if ( code = fill_list_from_database(
-			trans, header.osdIdHash, OSDDB_OSD, list) )
+    if ((code = fill_list_from_database(
+                 trans, header.osdIdHash, OSDDB_OSD, list)))
 	goto abort;
 
     code = ubik_EndTrans(trans);
@@ -1333,7 +1329,7 @@ GetOsd(struct rx_call *call, afs_uint32 id, char *name,
     if (!id && !strlen(name)) 
 	return EINVAL;
 
-    if (code = init_dbase(&trans, LOCKREAD))
+    if ((code = init_dbase(&trans, LOCKREAD)))
 	return code;
     e = malloc(sizeof(struct oe));
     if (!e)
@@ -1388,17 +1384,18 @@ static afs_int32
 SetOsd(struct rx_call *call, struct osddb_osd_tab *in)
 {
     struct ubik_trans *trans;
-    afs_int32 code, offs;
+    afs_int32 code;
+    afs_uint32 offs;
     struct oe *e = NULL;
 
     if (call && !afsconf_SuperUser(osddb_confdir, call, NULL)) {
         return EPERM;
     }
  
-    if (code = check_osd_tab(in))
+    if ((code = check_osd_tab(in)))
 	return code;
 
-    if (code = init_dbase(&trans, LOCKWRITE))
+    if ((code = init_dbase(&trans, LOCKWRITE)))
 	return code;
     e = malloc(sizeof(struct oe));
     if (!e)
@@ -1515,7 +1512,8 @@ SetOsdUsage(struct rx_call *call, afs_uint32 id, afs_uint32 bsize,
 	    afs_uint64 files, afs_uint64 filesFree)
 {
     struct ubik_trans *trans;
-    afs_int32 code, i, offs;
+    afs_int32 code;
+    afs_uint32 offs;
     struct oe e;
     afs_uint64 b, f;
     afs_int32 pmUsed = 0, pmFilesUsed = 0, update = 0;
@@ -1588,7 +1586,7 @@ SetOsdUsage(struct rx_call *call, afs_uint32 id, afs_uint32 bsize,
 	    return 0;
     }
 	
-    if (code = init_dbase(&trans, LOCKWRITE))
+    if ((code = init_dbase(&trans, LOCKWRITE)))
 	return code;
     memset(&e, 0, sizeof(e));
     code = FindById(trans, OSDDB_OSD, id, &e, &offs);
@@ -1634,7 +1632,8 @@ static afs_int32
 AddServer(struct rx_call *call, struct osddb_server_tab *in) 
 {
     struct ubik_trans *trans;
-    afs_int32 code, offs;
+    afs_int32 code;
+    afs_uint32 offs;
     struct oe *e = NULL;
 
     if (!afsconf_SuperUser(osddb_confdir, call, NULL)) {
@@ -1646,7 +1645,7 @@ AddServer(struct rx_call *call, struct osddb_server_tab *in)
         return EINVAL;
     }
 
-    if (code = init_dbase(&trans, LOCKWRITE))
+    if ((code = init_dbase(&trans, LOCKWRITE)))
         return code;
     e = malloc(sizeof(struct oe));
     if (!e) {
@@ -1741,7 +1740,8 @@ SetServer(struct rx_call *call, afs_uint32 id, char *name,
 	  struct osddb_server_tab *in)
 {
     struct ubik_trans *trans;
-    afs_int32 code, offs;
+    afs_int32 code;
+    afs_uint32 offs;
     struct oe *e = NULL;
 
     if (call && !afsconf_SuperUser(osddb_confdir, call, NULL)) {
@@ -1753,7 +1753,7 @@ SetServer(struct rx_call *call, afs_uint32 id, char *name,
         return EINVAL;
     }
 
-    if (code = init_dbase(&trans, LOCKWRITE))
+    if ((code = init_dbase(&trans, LOCKWRITE)))
 	return code;
     e = malloc(sizeof(struct oe));
     if (!e) {
@@ -1831,6 +1831,7 @@ abort:
     return code;
 }
 
+afs_int32
 SOSDDB_SetServer(struct rx_call *call, afs_uint32 id, char *name,
 		 struct osddb_server_tab *in)
 {
@@ -1842,6 +1843,7 @@ SOSDDB_SetServer(struct rx_call *call, afs_uint32 id, char *name,
     return code;
 }
 
+afs_int32
 SOSDDB_SetServer61(struct rx_call *call, afs_uint32 id, char *name,
 		   struct osddb_server_tab *in)
 {
@@ -1854,14 +1856,15 @@ SOSDDB_SetServer61(struct rx_call *call, afs_uint32 id, char *name,
 }
 
 static afs_int32
-GetServer(struct rx_call *call, afs_uint32 id, char *name, 
+_GetServer(struct rx_call *call, afs_uint32 id, char *name, 
 	  struct osddb_server_tab *out)
 {
     struct ubik_trans *trans;
-    afs_int32 code, offs;
+    afs_int32 code;
+    afs_uint32 offs;
     struct oe *e = NULL;
 
-    if (code = init_dbase(&trans, LOCKREAD))
+    if ((code = init_dbase(&trans, LOCKREAD)))
 	return code;
     memset(out, 0, sizeof(struct osddb_server_tab));
     e = malloc(sizeof(struct oe));
@@ -1888,6 +1891,7 @@ abort:
     ubik_AbortTrans(trans);
     if (e)
 	free(e);
+    return code;
 }
 
 afs_int32
@@ -1897,7 +1901,7 @@ SOSDDB_GetServer(struct rx_call *call, afs_uint32 id, char *name,
     afs_int32 code;
     SETTHREADACTIVE(8, call);
 
-    code = GetServer(call, id, name, out);
+    code = _GetServer(call, id, name, out);
     SETTHREADINACTIVE();
     return code;
 }
@@ -1909,7 +1913,7 @@ SOSDDB_GetServer62(struct rx_call *call, afs_uint32 id, char *name,
     afs_int32 code;
     SETTHREADACTIVE(62, call);
 
-    code = GetServer(call, id, name, out);
+    code = _GetServer(call, id, name, out);
     SETTHREADINACTIVE();
     return code;
 }
@@ -1918,9 +1922,7 @@ static afs_int32
 ServerList(struct rx_call *call, struct OsdList *list)
 {
     struct ubik_trans *trans;
-    afs_int32 code, i, j;
-    struct oe e;
-    struct Osd *s;
+    afs_int32 code;
 
     list->OsdList_len = 0;
     list->OsdList_val = NULL; 
@@ -1928,7 +1930,7 @@ ServerList(struct rx_call *call, struct OsdList *list)
 #if 0	/* Why? */
     if (code = init_dbase(&trans, ubeacon_AmSyncSite()? LOCKWRITE : LOCKREAD))
 #else
-    if (code = init_dbase(&trans, LOCKREAD))
+    if ((code = init_dbase(&trans, LOCKREAD)))
 #endif
 	return code;
     list->OsdList_val = (struct Osd *) 
@@ -1939,8 +1941,8 @@ ServerList(struct rx_call *call, struct OsdList *list)
     }
     memset(list->OsdList_val, 0, header.nServers * sizeof(struct Osd));
     list->OsdList_len = header.nServers;
-    if ( code = fill_list_from_database(
-			trans, header.srvIdHash, OSDDB_SERVER, list) )
+    if ((code = fill_list_from_database(
+                 trans, header.srvIdHash, OSDDB_SERVER, list) ))
 	goto abort;
     code = ubik_EndTrans(trans);
     return code;
@@ -1978,7 +1980,8 @@ static afs_int32
 DeleteServer(struct rx_call *call, struct osddb_server_tab *in)
 {
     struct ubik_trans *trans;
-    afs_int32 code, offs;
+    afs_int32 code;
+    afs_uint32 offs;
     struct oe *e = NULL;
     char myName[OSDDB_MAXNAMELEN];
     afs_uint32 myId;
@@ -1987,7 +1990,7 @@ DeleteServer(struct rx_call *call, struct osddb_server_tab *in)
         return EPERM;
     }
 
-    if (code = init_dbase(&trans, LOCKWRITE))
+    if ((code = init_dbase(&trans, LOCKWRITE)))
 	return code;
     e = malloc(sizeof(struct oe));
     if (!e) {
@@ -2012,6 +2015,7 @@ abort:
     ubik_AbortTrans(trans);
     if (e)
 	free(e);
+    return code;
 }
 
 afs_int32
@@ -2041,9 +2045,9 @@ AddPolicy(struct rx_call *call, afs_uint32 id, char *name,
 	  pol_ruleList *rules)
 { 
     struct ubik_trans *trans;
-    afs_int32 code, offs;
+    afs_int32 code;
+    afs_uint32 offs;
     struct oe *e = NULL;
-    int i, r;
 
     if (!afsconf_SuperUser(osddb_confdir, call, NULL)) {
 	return EPERM;
@@ -2063,10 +2067,10 @@ AddPolicy(struct rx_call *call, afs_uint32 id, char *name,
 	return EINVAL;
     }
 
-    if (code = init_dbase(&trans, LOCKWRITE))
+    if ((code = init_dbase(&trans, LOCKWRITE)))
 	return code;
 
-    if ( code = check_policy(trans, id, rules) ) {
+    if ((code = check_policy(trans, id, rules))) {
 	ViceLog(0,("new policy %d didn't pass integrity check. denied.\n", id));
 	goto abort;
     }
@@ -2128,7 +2132,7 @@ AddPolicy(struct rx_call *call, afs_uint32 id, char *name,
     ViceLog(1, ("writing DB header, pol-revision=%d\n", 
 				    header.policies_revision));
 
-    if ( code = write_osddb_header(trans) ) {
+    if ((code = write_osddb_header(trans))) {
 	FreeBlock(trans, offs);
 	goto abort;
     }
@@ -2175,9 +2179,7 @@ static afs_int32
 PolicyList(struct rx_call *call, struct OsdList *list)
 {
     struct ubik_trans *trans;
-    afs_int32 code, i, j;
-    struct oe e;
-    struct Osd *s;
+    afs_int32 code;
 
     list->OsdList_len = 0;
     list->OsdList_val = NULL; 
@@ -2185,7 +2187,7 @@ PolicyList(struct rx_call *call, struct OsdList *list)
 #if 0	/* Why? */
     if (code = init_dbase(&trans, ubeacon_AmSyncSite()? LOCKWRITE : LOCKREAD))
 #else
-    if (code = init_dbase(&trans, LOCKREAD))
+    if ((code = init_dbase(&trans, LOCKREAD)))
 #endif
 	return code;
 
@@ -2197,8 +2199,8 @@ PolicyList(struct rx_call *call, struct OsdList *list)
     memset(list->OsdList_val, 0, header.nPolicies * sizeof(struct Osd));
 
     list->OsdList_len = header.nPolicies;
-    if ( code = fill_list_from_database(
-			trans, header.polIdHash, OSDDB_POLICY, list) )
+    if ((code = fill_list_from_database(
+                 trans, header.polIdHash, OSDDB_POLICY, list)))
 	goto abort;
 
     code = ubik_EndTrans(trans);
@@ -2238,17 +2240,17 @@ static afs_int32
 DeletePolicy(struct rx_call *call, afs_uint32 id)
 {
     struct ubik_trans *trans;
-    afs_int32 code, offs;
+    afs_int32 code;
+    afs_uint32 offs;
     struct oe *e = NULL;
     char myName[OSDDB_MAXNAMELEN];
     afs_uint32 myId;
-    int i;
 
     if (!afsconf_SuperUser(osddb_confdir, call, NULL)) {
         return EPERM;
     }
 
-    if (code = init_dbase(&trans, LOCKWRITE))
+    if ((code = init_dbase(&trans, LOCKWRITE)))
 	return code;
     e = malloc(sizeof(struct oe));
     if (!e) {
@@ -2263,7 +2265,7 @@ DeletePolicy(struct rx_call *call, afs_uint32 id)
     myId = e->oe_u.t3.id;
     memcpy(myName, e->oe_u.t3.name, OSDDB_MAXNAMELEN);
     free_entry(e);
-    if ( code = DeleteEntry(trans, OSDDB_POLICY, myName, myId, e) )
+    if ((code = DeleteEntry(trans, OSDDB_POLICY, myName, myId, e)))
 	goto abort;
 	
     ViceLog(1, ("delete finished, pol-revision=%d\n",
@@ -2306,13 +2308,14 @@ static afs_int32
 GetPolicyID(struct rx_call *call,char *name, afs_uint32 *id)
 {
     struct ubik_trans *trans;
-    afs_int32 code, offset;
+    afs_int32 code;
+    afs_uint32 offset;
     struct oe e;
 
 #if 0	/* Why? */
     if (code = init_dbase(&trans, ubeacon_AmSyncSite()? LOCKWRITE : LOCKREAD))
 #else
-    if (code = init_dbase(&trans, LOCKREAD))
+    if ((code = init_dbase(&trans, LOCKREAD)))
 #endif
 	return code;
 
@@ -2358,7 +2361,7 @@ GetPoliciesRevision(struct rx_call *call, afs_uint32 *revision)
 #if 0	/* Why? */
     if (code = init_dbase(&trans, ubeacon_AmSyncSite()? LOCKWRITE : LOCKREAD))
 #else
-    if (code = init_dbase(&trans, LOCKREAD))
+    if ((code = init_dbase(&trans, LOCKREAD)))
 #endif
 	return code;
 
@@ -2462,6 +2465,7 @@ OSDDB_5_minuteCheck(void *unused)
             xdr_free ((xdrproc_t) xdr_OsdList, &osds);
         }
     }
+    return NULL;
 }
 
 struct osddb_ops_v0 osddb_ops_v0 = {

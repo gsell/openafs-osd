@@ -5,6 +5,23 @@
  *
  */
 
+/*
+  Macros used for conditional builds of OSD specific components:
+
+  BUILDING_CLIENT_COMMAND (*)
+  BUILDING_FILESERVER (*)
+  BUILDING_RXOSD
+  BUILDING_VLSERVER (*)
+  BUILDING_VOLSERVER (*)
+  BUILDING_VOS (*)
+  BUILD_LIBAFSOSD_A
+  BUILD_SALVAGER (*)
+  BUILD_SHLIBAFSHSM
+  BUILD_SHLIBAFSOSD (*)
+  FSSYNC_BUILD_CLIENT (*)
+
+ */
+
 #include <afsconfig.h>
 #include <afs/param.h>
 
@@ -47,14 +64,22 @@ extern void LogOsd(const char *format, va_list args);
 
 extern int ubeacon_AmSyncSite(void);
 extern void FidZap(DirHandle *);
+
 /*
- *  Everything in alpsbetical order ...
+  forward declarations
+ */
+int DeleteTrans(struct volser_trans *atrans, afs_int32 lock);
+struct volser_trans* NewTrans(afs_uint32 avol, afs_int32 apart);
+
+/*
+ *  Everything in alphabetical order ...
  */
 
+#if !defined(BUILD_SALVAGER)
 /* 
  *  from src/auth
  */
-private struct auth_ops_v0 {
+struct auth_ops_v0 {
     int (*afsconf_ClientAuth) (void *arock, struct rx_securityClass **astr,
                                afs_int32 * aindex);
     int (*afsconf_Close) (struct afsconf_dir *adir);
@@ -68,8 +93,12 @@ private struct auth_ops_v0 {
                              char *namep);
     int (*ktc_GetToken) (struct ktc_principal *aserver, struct ktc_token *atoken,
                          int atokenLen, struct ktc_principal *aclient);
-} auth_ops_v0;
-static struct auth_ops_v0 *auth = NULL;
+};
+#if !defined(BUILD_SHLIBAFSOSD)
+private struct auth_ops_v0 auth_ops_v0;
+#endif
+private struct auth_ops_v0 *auth = NULL;
+#endif
 
 #ifdef BUILDING_CLIENT_COMMAND
 /*
@@ -79,6 +108,15 @@ static struct auth_ops_v0 *auth = NULL;
 #include <afs/afsint.h>
 #include <afs/volint.h>
 #include <afs/usd.h>
+
+#include <afs/sys_prototypes.h>
+#include <afs/com_err.h>
+#include <afs/vldbint.h>
+
+#include <afs/volser.h>
+#include "../volser/volser_internal.h"
+#include <afs/volser_prototypes.h>
+#include <afs/vsutils_prototypes.h>
 
 struct vldbentry;
 struct nvldbentry;
@@ -147,14 +185,14 @@ struct cmd_ops_v0 {
                            int (*secproc)(struct rx_securityClass *, afs_int32),
                            struct ubik_client **uclientp);
 #endif
-    int (*vsu_GetVolumeID) (char *astring, struct ubik_client *acstruct,
+    afs_uint32 (*vsu_GetVolumeID) (char *astring, struct ubik_client *acstruct,
                             afs_int32 *errp);
     int (*usd_Open) (const char *path, int oflag, int mode, usd_handle_t * usdP);
     int (*usd_StandardInput) (usd_handle_t * usdP);
     int (*usd_StandardOutput) (usd_handle_t * usdP);
 } cmd_ops_v0;
 static struct cmd_ops_v0 *cmd = NULL;
-#endif
+#endif  /* BUILDING_CLIENT_COMMAND */
 /* 
  *  from src/dir
  */
@@ -164,14 +202,28 @@ struct dir_ops_v0 {
                           char *name, afs_uint32 length);
     void (*SetDirHandle) (struct DirHandle *dir, struct Vnode *vnode);
 };
+
+#if     \
+	defined(BUILDING_FILESERVER) ||		\
+	defined(BUILDING_VOLSERVER) ||		\
+	defined(BUILD_SALVAGER) ||			\
+	defined(FSSYNC_BUILD_CLIENT)
 private struct dir_ops_v0 dir_ops_v0;
-static struct dir_ops_v0 *dir = NULL;
+#endif
+#if \
+	defined(BUILDING_FILESERVER) ||		\
+	defined(BUILDING_VOLSERVER) ||		\
+	defined(BUILD_SALVAGER) ||			\
+	defined(BUILD_SHLIBAFSOSD) ||		\
+	defined(FSSYNC_BUILD_CLIENT)
+private struct dir_ops_v0 *dir = NULL;
+#endif
 
 #if defined(BUILDING_FILESERVER) || defined(BUILD_SHLIBAFSOSD) || defined(BUILDING_CLIENT_COMMAND)
 /* 
  *  from src/fsint
  */
-private struct fsint_ops_v0 {
+struct fsint_ops_v0 {
     int (*RXAFS_GiveUpAllCallBacks) (struct rx_connection *z_conn);
     int (*RXAFS_FsCmd) (struct rx_connection *z_conn, AFSFid * Fid,
 			struct FsCmdInputs * Inputs,
@@ -208,14 +260,17 @@ private struct fsint_ops_v0 {
     bool_t (*xdr_interfaceAddr) (XDR *xdrs, interfaceAddr *objp);
     bool_t (*xdr_osd_file2List) (XDR *xdrs, struct osd_file2List *objp);
     bool_t (*xdr_serverList) (XDR *xdrs, serverList *objp);
-} fsint_ops_v0;
-static struct fsint_ops_v0 *fsint;
+};
+#if !defined(BUILD_SHLIBAFSOSD)
+private struct fsint_ops_v0 fsint_ops_v0;
+#endif
+private struct fsint_ops_v0 *fsint;
 #endif /* BUILDING_FILESERVER */
 
 /* 
  *  from src/lwp
  */
-private struct lwp_ops_v0 {
+struct lwp_ops_v0 {
     void (*Afs_Lock_Obtain) (struct Lock *lock, int how);
     void (*Afs_Lock_ReleaseR) (struct Lock *lock);
     unsigned int (*FT_ApproxTime) (void);
@@ -223,13 +278,17 @@ private struct lwp_ops_v0 {
 #ifndef AFS_PTHREAD_ENV
     void (*IOMGR_Sleep) (int seconds);
 #endif
-} lwp_ops_v0;
-static struct lwp_ops_v0 *lwp = NULL;
+};
+#if !defined(BUILD_SHLIBAFSOSD)
+private struct lwp_ops_v0 lwp_ops_v0;
+#endif
+private struct lwp_ops_v0 *lwp = NULL;
 
+#if !defined(BUILD_SALVAGER)
 /* 
  *  from src/rx
  */
-private struct rx_ops_v0 {
+struct rx_ops_v0 {
     void *(*afs_xdr_alloc) (afs_int32 size);
     bool_t (*afs_xdr_array) (XDR * xdrs, caddr_t * addrp, u_int * sizep,
                         u_int maxsize, u_int elsize, xdrproc_t elproc);
@@ -293,24 +352,29 @@ private struct rx_ops_v0 {
     void (*xdr_free) (xdrproc_t proc, void *obj);
     void (*xdrlen_create) (XDR *xdrs);
     void (*xdrrx_create) (XDR *xdrs, struct rx_call *call, enum xdr_op op);
-} rx_ops_v0;
+};
+#if !defined(BUILD_SHLIBAFSOSD)
+private struct rx_ops_v0 rx_ops_v0;
+#endif
 static struct rx_ops_v0 *rx = NULL;
+#endif
 
 /* 
  *  from src/ubik
  */
 #ifndef BUILD_SHLIBAFSOSD
-extern int ubik_Call();
+extern int ubik_Call(int (*aproc) (struct rx_connection*, ...), struct ubik_client *aclient, afs_int32 aflags, ...);
 #endif
 
-private struct ubik_ops_v0 {
+#if !defined(BUILD_SALVAGER)
+struct ubik_ops_v0 {
     int (*ubeacon_AmSyncSite) (void);
     int (*ubik_AbortTrans) (struct ubik_trans *transPtr);
     int (*ubik_BeginTrans) (struct ubik_dbase *dbase, afs_int32 transMode,
 			    struct ubik_trans **transPtr);
     int (*ubik_BeginTransReadAny) (struct ubik_dbase *dbase, afs_int32 transMode,
                                    struct ubik_trans **transPtr);
-    int (*ubik_Call) (int (*aproc) (), struct ubik_client *aclient,
+    int (*ubik_Call) (int (*aproc) (struct rx_connection*,...), struct ubik_client *aclient,
                       afs_int32 aflags, long p1, long p2, long p3, long p4,
 		      long p5, long p6, long p7, long p8, long p9, long p10,
 		      long p11, long p12, long p13, long p14, long p15,
@@ -336,13 +400,17 @@ private struct ubik_ops_v0 {
                             afs_int32 maxservers, char *serviceid,
                             afs_int32 deadtime, afs_uint32 server,
                             afs_uint32 port, afs_int32 usrvid);
-} ubik_ops_v0;
-static struct ubik_ops_v0 *ubik = NULL;
+};
+#if !defined(BUILD_SHLIBAFSOSD)
+private struct ubik_ops_v0 ubik_ops_v0;
+#endif
+private struct ubik_ops_v0 *ubik = NULL;
+#endif
 
 /* 
  *  from src/util
  */
-private struct util_ops_v0 {
+struct util_ops_v0 {
     afs_int32 (*afs_uuid_create) (afsUUID * uuid);
     afs_int64 (*flipbase64_to_int64) (char *s);
     struct hostent *(*hostutil_GetHostByName) (char *ahost);
@@ -357,21 +425,26 @@ private struct util_ops_v0 {
     char *(*volutil_PartitionName_r) (int part, char *tbuffer, int buflen);
     afs_int32 (*volutil_GetPartitionID) (char *aname);
     void (*vFSLog) (const char *format, va_list args);
-} util_ops_v0;
-static struct util_ops_v0 *util = NULL;
+};
+#if !defined(BUILD_SHLIBAFSOSD)
+private struct util_ops_v0 util_ops_v0;
+#endif
+private struct util_ops_v0 *util = NULL;
 
-#if defined(BUILDING_FILESERVER) || defined BUILD_SHLIBAFSOSD
+#if defined(BUILDING_FILESERVER) || defined(BUILD_SHLIBAFSOSD)
 /* 
  *  from src/viced
  */
 
-static struct viced_ops_v0 viced_ops_v0;
-static struct viced_ops_v0 *viced = NULL;
+#if !defined(BUILD_SHLIBAFSOSD)
+private struct viced_ops_v0 viced_ops_v0;
+#endif
+private struct viced_ops_v0 *viced = NULL;
 void viced_fill_ops(struct viced_ops_v0 *viced);
 
 #endif /* BUILDING_FILESERVER */
 
-#ifndef BUILDING_CLIENT_COMMAND
+#if !defined(BUILDING_VLSERVER) && !defined(BUILDING_CLIENT_COMMAND)
 /* 
  *  from src/vol
  */
@@ -424,17 +497,17 @@ struct vol_ops_v0 {
                                 afs_fsize_t nitems, StreamHandle_t * streamP);
     void (*LogOsd) (const char *format, va_list args);
 };
-static struct vol_ops_v0 vol_ops_v0, *vol = NULL;
-#endif /* BUILDING_CLIENT_COMMAND */
+#if !defined(BUILD_SHLIBAFSOSD)
+private struct vol_ops_v0 vol_ops_v0;
+#endif
+private struct vol_ops_v0 *vol = NULL;
+#endif
 
 #if defined(BUILDING_VOLSERVER) || defined BUILD_SHLIBAFSOSD
-#if 0
-struct volser_ops_v0 {
-    int (*DeleteTrans) (struct volser_trans *atrans, afs_int32 lock);
-    int (*NewTrans) (afs_uint32 avol, afs_int32 apart);
-};
+#if !defined(BUILD_SHLIBAFSOSD)
+private struct volser_ops_v0 volser_ops_v0;
 #endif
-static struct volser_ops_v0 volser_ops_v0, *volser = NULL;
+private struct volser_ops_v0 *volser = NULL;
 #endif /* BUILDING_VOLSERVER */
 
 struct ops_ptr {
@@ -474,9 +547,6 @@ fill_ops(struct ops_ptr *opsptr)
 #endif
 
 #ifdef BUILDING_CLIENT_COMMAND
-#include <afs/sys_prototypes.h>
-#include <afs/com_err.h>
-#include <afs/vldbint.h>
     cmd = &cmd_ops_v0;
     cmd->AssertionFailed = AssertionFailed;
     cmd->afs_error_message = afs_error_message;
@@ -490,19 +560,9 @@ fill_ops(struct ops_ptr *opsptr)
     cmd->rxkad_NewServerSecurityObject = rxkad_NewServerSecurityObject;
     cmd->VL_GetEntryByID = VL_GetEntryByID;
 #ifdef BUILDING_VOS
-#include <afs/volser.h>
-#include "../volser/volser_internal.h"
-#include <afs/volser_prototypes.h>
-#include <afs/vsutils_prototypes.h>
-extern int VLDB_GetEntryByID(afs_uint32 volid, afs_int32 voltype,
-                            struct nvldbentry *entryp);
-extern afs_uint32 GetServer(char *aname);
-extern struct rx_connection * UV_BindOsd(afs_uint32 aserver, afs_int32 port);
-extern int VolNameOK(char *name);
-extern int GetServerAndPart(struct nvldbentry *entry, int voltype, afs_uint32 *server,
-                 afs_int32 *part, int *previdx);
-extern int IsNumeric(char *name);
-extern int IsPartValid(afs_int32 partId, afs_uint32 server, afs_int32 *code);
+int VLDB_GetEntryByID(afs_uint32 volid, afs_int32 voltype,
+                      struct nvldbentry *entryp);
+struct rx_connection * UV_BindOsd(afs_uint32 aserver, afs_int32 port);
     cmd->GetServer = GetServer;
     cmd->GetServerAndPart = GetServerAndPart;
     cmd->init_volintInfo = init_volintInfo;
@@ -636,7 +696,7 @@ extern int IsPartValid(afs_int32 partId, afs_uint32 server, afs_int32 *code);
     ubik->ubik_BeginTrans = ubik_BeginTrans;
     ubik->ubik_BeginTransReadAny = ubik_BeginTransReadAny;
 #endif
-    ubik->ubik_Call = ubik_Call;
+    ubik->ubik_Call = (void*)&ubik_Call;
 #ifdef BUILDING_VLSERVER
     ubik->ubik_CheckCache = ubik_CheckCache;
 #endif
@@ -726,11 +786,8 @@ extern int IsPartValid(afs_int32 partId, afs_uint32 server, afs_int32 *code);
 
 #ifdef BUILDING_VOLSERVER
     volser = &volser_ops_v0;
-    fill_ops_volser(volser);
-#if 0
     volser->DeleteTrans = DeleteTrans;
     volser->NewTrans = NewTrans;
-#endif
     opsptr->volser = volser;
 #endif /* BUILDING_VOLSERVER */
 }
@@ -850,7 +907,7 @@ load_libcafsosd(char *initroutine, void *inrock, void *outrock)
 #endif /* BUILDING_CLIENT_COMMAND */
 
 void
-unload_lib()
+unload_lib(void)
 {
     dlclose(libHandle);
 }
@@ -964,6 +1021,7 @@ void
 AssertionFailed(char *file, int line) 
 {
     (cmd->AssertionFailed)(file, line);
+    abort(); /* never reached, just to make the compiler happy */ 
 }
 
 const char *
@@ -1171,7 +1229,7 @@ vsu_ClientInit(const char *confDir, char *cellName, int secFlags,
 }
 #endif
 
-int
+afs_uint32
 vsu_GetVolumeID(char *astring, struct ubik_client *acstruct, afs_int32 *errp)
 {
     return (cmd->vsu_GetVolumeID)(astring, acstruct, errp);
@@ -1733,8 +1791,9 @@ ubik_BeginTransReadAny(struct ubik_dbase *dbase, afs_int32 transMode,
     return (ubik->ubik_BeginTransReadAny)(dbase, transMode, transPtr);
 }
 
+#if 0
 afs_int32
-ubik_Call(int (*aproc) (), struct ubik_client *aclient,
+ubik_Call(int (*aproc) (struct rx_connection*, ...), struct ubik_client *aclient,
           afs_int32 aflags, long p1, long p2, long p3, long p4,
           long p5, long p6, long p7, long p8, long p9, long p10,
           long p11, long p12, long p13, long p14, long p15, long p16)
@@ -1743,6 +1802,36 @@ ubik_Call(int (*aproc) (), struct ubik_client *aclient,
 				      p5, p6, p7, p8, p9, p10, p11, p12, p13,
 				      p14, p15, p16);
 }
+#else
+afs_int32
+ubik_Call(int (*aproc) (struct rx_connection*, ...), struct ubik_client *aclient, 
+          afs_int32 aflags, ...)
+{
+	long p1, p2, p3, p4, p5, p6, p7, p8, p9, p10, p11, p12, p13, p14, p15, p16;
+	va_list ap;
+	va_start (ap, aflags);
+	p1 = va_arg(ap, long);
+	p2 = va_arg(ap, long);
+	p3 = va_arg(ap, long);
+	p4 = va_arg(ap, long);
+	p5 = va_arg(ap, long);
+	p6 = va_arg(ap, long);
+	p7 = va_arg(ap, long);
+	p8 = va_arg(ap, long);
+	p9 = va_arg(ap, long);
+	p10 = va_arg(ap, long);
+	p11 = va_arg(ap, long);
+	p12 = va_arg(ap, long);
+	p13 = va_arg(ap, long);
+	p14 = va_arg(ap, long);
+	p15 = va_arg(ap, long);
+	p16 = va_arg(ap, long);
+	va_end (ap);
+    return (ubik->ubik_Call)(aproc, aclient, aflags, p1, p2, p3, p4,
+				      p5, p6, p7, p8, p9, p10, p11, p12, p13,
+				      p14, p15, p16);
+}
+#endif
 
 int
 ubik_CheckCache(struct ubik_trans *atrans, ubik_updatecache_func check,
@@ -2233,7 +2322,7 @@ namei_HandleToName(namei_t * name, IHandle_t * h)
 int
 namei_dec(IHandle_t * h, Inode ino, int p1)
 {
-    (vol->namei_dec)(h, ino, p1);
+    return (vol->namei_dec)(h, ino, p1);
 }
 
 Inode
@@ -2265,7 +2354,7 @@ DeleteTrans(struct volser_trans *atrans, afs_int32 lock)
     return (volser->DeleteTrans)(atrans, lock);
 }
 
-int
+struct volser_trans*
 NewTrans(afs_uint32 avol, afs_int32 apart)
 {
     return (volser->NewTrans)(avol, apart);
